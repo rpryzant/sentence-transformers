@@ -56,6 +56,10 @@ class SentencesDataset(Dataset):
             iterator = tqdm(iterator, desc="Convert dataset")
 
         for ex_index, example in enumerate(iterator):
+            ################################
+            if ex_index > 10: continue
+            ################################
+
             if label_type is None:
                 if isinstance(example.label, int):
                     label_type = torch.long

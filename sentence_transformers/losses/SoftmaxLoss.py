@@ -27,6 +27,11 @@ class SoftmaxLoss(nn.Module):
         if concatenation_sent_multiplication:
             num_vectors_concatenated += 1
         logging.info("Softmax loss: #Vectors concatenated: {}".format(num_vectors_concatenated))
+
+        print(num_vectors_concatenated)
+        print(sentence_embedding_dimension)
+        print(num_labels)
+
         self.classifier = nn.Linear(num_vectors_concatenated * sentence_embedding_dimension, num_labels)
 
     def forward(self, sentence_features: Iterable[Dict[str, Tensor]], labels: Tensor):

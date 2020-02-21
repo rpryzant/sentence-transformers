@@ -18,18 +18,18 @@ class Pooling(nn.Module):
                  pooling_mode_max_tokens: bool = False,
                  pooling_mode_mean_tokens: bool = True,
                  pooling_mode_mean_sqrt_len_tokens: bool = False,
+                 pooling_mode_ParsePOOL: bool = False
                  ):
         super(Pooling, self).__init__()
 
         self.config_keys = ['word_embedding_dimension',  'pooling_mode_cls_token', 'pooling_mode_mean_tokens', 'pooling_mode_max_tokens', 'pooling_mode_mean_sqrt_len_tokens']
-
         self.word_embedding_dimension = word_embedding_dimension
         self.pooling_mode_cls_token = pooling_mode_cls_token
         self.pooling_mode_mean_tokens = pooling_mode_mean_tokens
         self.pooling_mode_max_tokens = pooling_mode_max_tokens
         self.pooling_mode_mean_sqrt_len_tokens = pooling_mode_mean_sqrt_len_tokens
-
-        pooling_mode_multiplier = sum([pooling_mode_cls_token, pooling_mode_max_tokens, pooling_mode_mean_tokens, pooling_mode_mean_sqrt_len_tokens])
+        self.pooling_mode_ParsePOOL = pooling_mode_ParsePOOL
+        pooling_mode_multiplier = sum([pooling_mode_cls_token, pooling_mode_max_tokens, pooling_mode_mean_tokens, pooling_mode_mean_sqrt_len_tokens, pooling_mode_ParsePOOL])
         self.pooling_output_dimension = (pooling_mode_multiplier * word_embedding_dimension)
 
     def forward(self, features: Dict[str, Tensor]):
@@ -39,6 +39,11 @@ class Pooling(nn.Module):
 
         ## Pooling strategy
         output_vectors = []
+        if self.pooling_mode_ParsePOOL:
+            input_mask_expanded = input_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            token_embeddings[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value
+            output_vectors.append(self.ParsePOOL(token_embeddings))
+
         if self.pooling_mode_cls_token:
             output_vectors.append(cls_token)
         if self.pooling_mode_max_tokens:
@@ -83,3 +88,19 @@ class Pooling(nn.Module):
             config = json.load(fIn)
 
         return Pooling(**config)
+
+    def ParsePOOL(self, token_embeddings):
+        parse = {'S': ['Feds', {'VP': ['raised', {'NP': ['the', 'interest', 'rates']}]}]}
+        token_embeddings = token_embeddings[:, :5, :]
+
+        print('$' * 100)
+        # [B T H]
+        print(token_embeddings.shape)
+        print('$' * 100)
+        quit()
+
+
+
+
+
+
