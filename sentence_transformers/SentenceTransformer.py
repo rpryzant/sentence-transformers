@@ -206,10 +206,12 @@ class SentenceTransformer(nn.Sequential):
         """
         num_texts = len(batch[0][0])
 
+        trees = list(zip(*batch))[-1]
+
         labels = []
         paired_texts = [[] for _ in range(num_texts)]
         max_seq_len = [0] * num_texts
-        for tokens, label in batch:
+        for tokens, label, _ in batch:
             labels.append(label)
             for i in range(num_texts):
                 paired_texts[i].append(tokens[i])
@@ -232,7 +234,7 @@ class SentenceTransformer(nn.Sequential):
 
             features.append(feature_lists)
 
-        return {'features': features, 'labels': torch.stack(labels)}
+        return {'features': features, 'labels': torch.stack(labels), 'trees': trees}
 
 
 
@@ -362,6 +364,10 @@ class SentenceTransformer(nn.Sequential):
                         data = next(data_iterator)
 
                     features, labels = batch_to_device(data, self.device)
+                    # TODO avoiding gpu when putting batch on device?
+                    print(data)
+                    trees = data['trees']
+                    print(trees); quit() # TODO FROM HERE GET INTO MODEL FORWARD FN
                     loss_value = loss_model(features, labels)
 
 

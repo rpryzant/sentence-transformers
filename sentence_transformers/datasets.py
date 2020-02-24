@@ -11,6 +11,16 @@ import numpy as np
 from tqdm import tqdm
 from . import SentenceTransformer
 from .readers.InputExample import InputExample
+import pickle
+
+
+# def buildOrLoad(examples, model, cache):
+#     if os.path.exists(cache + '.toks') and os.path.exists(cache + '.labels'):
+#         return 
+
+
+
+# examples=sts_reader.get_examples('sts-dev.csv'), model=model)
 
 
 class SentencesDataset(Dataset):
@@ -20,7 +30,8 @@ class SentencesDataset(Dataset):
     The SentenceBertEncoder.smart_batching_collate is required for this to work.
     SmartBatchingDataset does *not* work without it.
     """
-    def __init__(self, examples: List[InputExample], model: SentenceTransformer, show_progress_bar: bool = None):
+    def __init__(self, examples: List[InputExample] = None, model: SentenceTransformer = None, show_progress_bar: bool = None,
+        tokens=None, labels=None):
         """
         Create a new SentencesDataset with the tokenized texts and the labels as Tensor
         """
@@ -28,7 +39,11 @@ class SentencesDataset(Dataset):
             show_progress_bar = (logging.getLogger().getEffectiveLevel() == logging.INFO or logging.getLogger().getEffectiveLevel() == logging.DEBUG)
         self.show_progress_bar = show_progress_bar
 
-        self.convert_input_examples(examples, model)
+        if tokens is None and labels is None:
+            self.convert_input_examples(examples, model)
+        else:
+            self.tokens = tokens
+            self.labels = labels
 
     def convert_input_examples(self, examples: List[InputExample], model: SentenceTransformer):
         """
@@ -59,7 +74,7 @@ class SentencesDataset(Dataset):
             ################################
             if ex_index > 10: continue
             ################################
-
+            print(ex_index)
             if label_type is None:
                 if isinstance(example.label, int):
                     label_type = torch.long
@@ -84,8 +99,26 @@ class SentencesDataset(Dataset):
         self.tokens = inputs
         self.labels = tensor_labels
 
+        self.trees = ['test%d' % i for i in range(len(tensor_labels))]
+
+
+    def save(self, path_prefix):
+        with open(path_prefix + '.toks', 'wb') as f:
+            pickle.dump(self.tokens, f)
+        with open(path_prefix + '.labels', 'wb') as f:
+            pickle.dump(self.labels, f)
+
+    @staticmethod
+    def load(path_prefix):
+        tokens = pickle.load(open(path_prefix + '.toks', 'rb'))
+        labels = pickle.load(open(path_prefix + '.labels', 'rb'))
+        out = SentencesDataset(tokens=tokens, labels=labels)
+        return out
+
+
     def __getitem__(self, item):
-        return [self.tokens[i][item] for i in range(len(self.tokens))], self.labels[item]
+        return [self.tokens[i][item] for i in range(len(self.tokens))], self.labels[item], self.trees[item]
+
 
     def __len__(self):
         return len(self.tokens[0])
