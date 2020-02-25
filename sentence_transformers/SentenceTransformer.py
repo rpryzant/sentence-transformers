@@ -82,7 +82,6 @@ class SentenceTransformer(nn.Sequential):
                     module = module_class.load(os.path.join(model_path, module_config['path']))
                     modules[module_config['name']] = module
 
-
         super().__init__(modules)
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -206,8 +205,6 @@ class SentenceTransformer(nn.Sequential):
         """
         num_texts = len(batch[0][0])
 
-        trees = list(zip(*batch))[-1]
-
         labels = []
         paired_texts = [[] for _ in range(num_texts)]
         max_seq_len = [0] * num_texts
@@ -234,7 +231,14 @@ class SentenceTransformer(nn.Sequential):
 
             features.append(feature_lists)
 
-        return {'features': features, 'labels': torch.stack(labels), 'trees': trees}
+        trees = list(zip(*batch))[-2]
+        word2weight = list(zip(*batch))[-1]
+        aux = {
+            'trees': trees,
+            'word2weight': word2weight
+        }
+
+        return {'features': features, 'labels': torch.stack(labels), 'aux': aux}
 
 
 
@@ -364,11 +368,9 @@ class SentenceTransformer(nn.Sequential):
                         data = next(data_iterator)
 
                     features, labels = batch_to_device(data, self.device)
-                    # TODO avoiding gpu when putting batch on device?
-                    print(data)
-                    trees = data['trees']
-                    print(trees); quit() # TODO FROM HERE GET INTO MODEL FORWARD FN
-                    loss_value = loss_model(features, labels)
+                    # TODO are the trees avoiding gpu when putting batch on device?
+                    aux = data['aux']
+                    loss_value = loss_model(features, labels, aux)
 
 
                     if fp16:

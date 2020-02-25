@@ -18,7 +18,8 @@ class Pooling(nn.Module):
                  pooling_mode_max_tokens: bool = False,
                  pooling_mode_mean_tokens: bool = True,
                  pooling_mode_mean_sqrt_len_tokens: bool = False,
-                 pooling_mode_ParsePOOL: bool = False
+                 pooling_mode_ParsePOOL: bool = False,
+                 # pooling_mode_mean_freq: bool = False
                  ):
         super(Pooling, self).__init__()
 
@@ -29,16 +30,45 @@ class Pooling(nn.Module):
         self.pooling_mode_max_tokens = pooling_mode_max_tokens
         self.pooling_mode_mean_sqrt_len_tokens = pooling_mode_mean_sqrt_len_tokens
         self.pooling_mode_ParsePOOL = pooling_mode_ParsePOOL
+        # self.pooling_mode_mean_freq = pooling_mode_mean_freq
+
         pooling_mode_multiplier = sum([pooling_mode_cls_token, pooling_mode_max_tokens, pooling_mode_mean_tokens, pooling_mode_mean_sqrt_len_tokens, pooling_mode_ParsePOOL])
         self.pooling_output_dimension = (pooling_mode_multiplier * word_embedding_dimension)
 
-    def forward(self, features: Dict[str, Tensor]):
+    def forward(self, features_aux):
+        # features_aux is (Dict[str, Tensor], dict)
+        if features_aux[0] is not None:
+            features, aux = features_aux
+        else:
+            features, aux = features_aux, None
+
+        # trees = aux['trees']
+        # print(aux['word2weight'])
+
         token_embeddings = features['token_embeddings']
         cls_token = features['cls_token_embeddings']
         input_mask = features['input_mask']
 
         ## Pooling strategy
         output_vectors = []
+        # if self.pooling_mode_mean_freq:
+        #     word2weight = aux['word2weight']
+        #     word2weight = torch.tensor(list(word2weight))
+
+        #     input_ids = features['input_ids']
+
+        #     print(input_ids)
+        #     token_weights = torch.gather(word2weight, 1, input_ids)
+        #     print(token_weights)
+        #     print(token_embeddings.shape)
+        #     print(input_mask_expanded.shape)
+        #     print(features['input_ids'])
+        #     quit()
+        #     input_mask_expanded = input_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        #     token_embeddings = token_embeddings * input_mask_expanded
+        #     sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+
+
         if self.pooling_mode_ParsePOOL:
             input_mask_expanded = input_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
             token_embeddings[input_mask_expanded == 0] = -1e9  # Set padding tokens to large negative value

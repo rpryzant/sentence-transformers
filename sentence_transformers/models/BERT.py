@@ -26,12 +26,16 @@ class BERT(nn.Module):
         self.cls_token_id = self.tokenizer.convert_tokens_to_ids([self.tokenizer.cls_token])[0]
         self.sep_token_id = self.tokenizer.convert_tokens_to_ids([self.tokenizer.sep_token])[0]
 
-    def forward(self, features):
+    def forward(self, features_aux):
         """Returns token_embeddings, cls_token"""
+        if isinstance(features_aux, tuple):
+            features, aux = features_aux
+        else:
+            features, aux = features_aux, None
         output_tokens = self.bert(input_ids=features['input_ids'], token_type_ids=features['token_type_ids'], attention_mask=features['input_mask'])[0]
         cls_tokens = output_tokens[:, 0, :]  # CLS token is first token
         features.update({'token_embeddings': output_tokens, 'cls_token_embeddings': cls_tokens, 'input_mask': features['input_mask']})
-        return features
+        return features, aux
 
     def get_word_embedding_dimension(self) -> int:
         return self.bert.config.hidden_size
@@ -93,6 +97,8 @@ class BERT(nn.Module):
 
 
 
+    def get_sentence_embedding_dimension(self):
+        return 768
 
 
 

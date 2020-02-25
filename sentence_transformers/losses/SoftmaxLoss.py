@@ -34,8 +34,8 @@ class SoftmaxLoss(nn.Module):
 
         self.classifier = nn.Linear(num_vectors_concatenated * sentence_embedding_dimension, num_labels)
 
-    def forward(self, sentence_features: Iterable[Dict[str, Tensor]], labels: Tensor):
-        reps = [self.model(sentence_feature)['sentence_embedding'] for sentence_feature in sentence_features]
+    def forward(self, sentence_features: Iterable[Dict[str, Tensor]], labels: Tensor, aux=None):
+        reps = [self.model((sentence_feature, aux))['sentence_embedding'] for sentence_feature in sentence_features]
         rep_a, rep_b = reps
 
         vectors_concat = []

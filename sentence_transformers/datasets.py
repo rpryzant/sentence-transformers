@@ -12,7 +12,7 @@ from tqdm import tqdm
 from . import SentenceTransformer
 from .readers.InputExample import InputExample
 import pickle
-
+from collections import defaultdict
 
 # def buildOrLoad(examples, model, cache):
 #     if os.path.exists(cache + '.toks') and os.path.exists(cache + '.labels'):
@@ -31,7 +31,8 @@ class SentencesDataset(Dataset):
     SmartBatchingDataset does *not* work without it.
     """
     def __init__(self, examples: List[InputExample] = None, model: SentenceTransformer = None, show_progress_bar: bool = None,
-        tokens=None, labels=None):
+        weightfile=None, 
+        tokens=None, labels=None, trees=None, weights=None):
         """
         Create a new SentencesDataset with the tokenized texts and the labels as Tensor
         """
@@ -41,9 +42,34 @@ class SentencesDataset(Dataset):
 
         if tokens is None and labels is None:
             self.convert_input_examples(examples, model)
+            # self.weights = self.get_tok_weights(model, weightfile)
         else:
             self.tokens = tokens
             self.labels = labels
+            self.trees = trees
+            # self.weights = weights
+
+
+    def get_tok_weights(self, model, weightfile, a=1e-3):
+        d = defaultdict(float)
+        N = 0.0
+        for l in open(weightfile):
+            word, freq = l.strip().split()
+            freq = float(freq)
+            for tok in model.tokenize(word):
+                d[tok] += freq
+                N += freq
+
+        for key, value in d.items():
+            d[key] = a / (a + value/N)
+
+        out = [1.0] * len(model._first_module().tokenizer.vocab)
+        for wi in range(len(out)):
+            if wi in d:
+                out[wi] = d[wi]
+
+        return out
+
 
     def convert_input_examples(self, examples: List[InputExample], model: SentenceTransformer):
         """
@@ -74,7 +100,6 @@ class SentencesDataset(Dataset):
             ################################
             if ex_index > 10: continue
             ################################
-            print(ex_index)
             if label_type is None:
                 if isinstance(example.label, int):
                     label_type = torch.long
@@ -107,17 +132,23 @@ class SentencesDataset(Dataset):
             pickle.dump(self.tokens, f)
         with open(path_prefix + '.labels', 'wb') as f:
             pickle.dump(self.labels, f)
+        with open(path_prefix + '.trees', 'wb') as f:
+            pickle.dump(self.trees, f)
+        # with open(path_prefix + '.word2weight', 'wb') as f:
+        #     pickle.dump(self.weights, f)
 
     @staticmethod
     def load(path_prefix):
         tokens = pickle.load(open(path_prefix + '.toks', 'rb'))
         labels = pickle.load(open(path_prefix + '.labels', 'rb'))
-        out = SentencesDataset(tokens=tokens, labels=labels)
+        trees = pickle.load(open(path_prefix + '.trees', 'rb'))
+        # weights = pickle.load(open(path_prefix + '.word2weight', 'rb'))
+        out = SentencesDataset(tokens=tokens, labels=labels, trees=trees) #, weights=weights)
         return out
 
 
     def __getitem__(self, item):
-        return [self.tokens[i][item] for i in range(len(self.tokens))], self.labels[item], self.trees[item]
+        return [self.tokens[i][item] for i in range(len(self.tokens))], self.labels[item], self.trees[item] #, self.weights
 
 
     def __len__(self):

@@ -9,7 +9,8 @@ import logging
 class WordWeights(nn.Module):
     """This model can weight word embeddings, for example, with idf-values."""
 
-    def __init__(self, vocab: List[str], word_weights: Dict[str, float], unknown_word_weight: float = 1):
+    def __init__(self, vocab: List[str], word_weights: Dict[str, float], unknown_word_weight: float = 1,
+        finetune=True, eval_only=False, train_only=False):
         """
 
         :param vocab:
@@ -20,6 +21,11 @@ class WordWeights(nn.Module):
             Weight for words in vocab, that do not appear in the word_weights lookup. These can be for example rare words in the vocab, where no weight exists.
         """
         super(WordWeights, self).__init__()
+        self.finetune = finetune
+        self.eval_only = eval_only
+        self.train_only = train_only
+
+
         self.config_keys = ['vocab', 'word_weights', 'unknown_word_weight']
         self.vocab = vocab
         self.word_weights = word_weights
@@ -41,9 +47,23 @@ class WordWeights(nn.Module):
 
         self.emb_layer = nn.Embedding(len(vocab), 1)
         self.emb_layer.load_state_dict({'weight': torch.FloatTensor(weights).unsqueeze(1)})
+        if finetune:
+            self.emb_layer.weight.requires_grad = True
+        else:
+            self.emb_layer.weight.requires_grad = False
 
 
-    def forward(self, features: Dict[str, Tensor]):
+    def forward(self, features_aux):
+        if isinstance(features_aux, tuple):
+            features, aux = features_aux
+        else:
+            features, aux = features_aux, None
+
+        if self.eval_only and self.training:
+            return features_aux
+        if self.train_only and not self.training:
+            return features_aux
+
         input_mask = features['input_mask']
         token_embeddings = features['token_embeddings']
 
@@ -57,7 +77,7 @@ class WordWeights(nn.Module):
         token_embeddings = token_embeddings * token_weights_expanded
 
         features.update({'token_embeddings': token_embeddings, 'token_weights_sum': token_weights_sum})
-        return features
+        return features, aux
 
     def get_config_dict(self):
         return {key: self.__dict__[key] for key in self.config_keys}
