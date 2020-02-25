@@ -18,11 +18,11 @@ from collections import defaultdict
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--working_dir", default='output/')
-parser.add_argument("--freq_weighting", action='store_true')
+parser.add_argument("--fw", action='store_true', help='freq weighting')
 parser.add_argument("--alpha", default=1e-3, help='smoothing term')
-parser.add_argument("--finetune_freq_weights", action='store_true')
-parser.add_argument("--freq_weighting_eval_only", action='store_true')
-parser.add_argument("--freq_weighting_train_only", action='store_true')
+parser.add_argument("--fw_finetune", action='store_true')
+parser.add_argument("--fw_eval", action='store_true')
+parser.add_argument("--fw_train", action='store_true')
 ARGS = parser.parse_args()
 
 
@@ -83,11 +83,11 @@ word_weights = models.WordWeights(
   vocab=list(word_embedding_model.tokenizer.vocab),
   word_weights=wid2weight,
   unknown_word_weight=1.0,
-  finetune=ARGS.finetune_freq_weights,
-  eval_only=ARGS.freq_weighting_eval_only,
-  train_only=ARGS.freq_weighting_train_only)
+  finetune=ARGS.fw_finetune,
+  eval_only=ARGS.fw_eval,
+  train_only=ARGS.fw_train)
 
-if ARGS.freq_weighting:
+if ARGS.fw:
   model = SentenceTransformer(modules=[word_embedding_model, word_weights, pooling_model])
 else:
   model = SentenceTransformer(modules=[word_embedding_model, pooling_model])

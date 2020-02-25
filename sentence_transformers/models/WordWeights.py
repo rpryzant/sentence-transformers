@@ -10,7 +10,7 @@ class WordWeights(nn.Module):
     """This model can weight word embeddings, for example, with idf-values."""
 
     def __init__(self, vocab: List[str], word_weights: Dict[str, float], unknown_word_weight: float = 1,
-        finetune=True, eval_only=False, train_only=False):
+        finetune=False, eval_only=False, train_only=False):
         """
 
         :param vocab:

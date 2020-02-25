@@ -1,0 +1,39 @@
+
+
+
+done https://www.youtube.com/watch?v=XCm4js8wp4A
+done https://www.youtube.com/watch?v=xLa2A4pBF6I
+done https://www.youtube.com/watch?v=zJ_wC4EW_ak
+done https://www.youtube.com/watch?v=Z6GsoBA-09k
+done https://www.youtube.com/watch?v=3WzZL-2zAz0
+done https://www.youtube.com/watch?v=CFEGKVjEH1Q
+https://www.youtube.com/watch?v=MIlQwfMZ8O4
+https://www.youtube.com/watch?v=_JtP-32keKE
+https://www.youtube.com/watch?v=1_LQscB4Wso
+https://www.youtube.com/watch?v=egBq3gi_4No
+https://www.youtube.com/watch?v=Ec5g2Y23uTw
+
+
+
+
+python training_nli_berg.py --working_dir 0_baseline
+
+python training_nli_berg.py --fw --working_dir 0_fw
+python training_nli_berg.py --fw --alpha 1e-5 --working_dir 0_fw_1e-5
+python training_nli_berg.py --fw --alpha 1e-4  --working_dir 0_fw_1e-4
+python training_nli_berg.py --fw --alpha 1e-2  --working_dir 0_fw_1e-2
+
+python training_nli_berg.py --fw --fw_finetune --working_dir 0_fw_finetune
+
+python training_nli_berg.py --fw --fw_train --working_dir 0_fw_train
+python training_nli_berg.py --fw --fw_train --fw_finetune --working_dir 0_fw_finetune_train
+
+
+python training_nli_berg.py --fw --fw_eval --working_dir 0_fw_eval
+python training_nli_berg.py --fw --fw_eval --fw_finetune --working_dir 0_fw_finetune_eval
+
+
+
+
+
+
