@@ -36,12 +36,12 @@ logging.basicConfig(format='%(asctime)s - %(message)s',
 
 # Read the dataset
 model_name = 'bert-base-uncased'
-batch_size = 2
+batch_size = 24
 nli_reader = NLIDataReader('examples/datasets/AllNLI')
 sts_reader = STSDataReader('examples/datasets/stsbenchmark')
 train_num_labels = nli_reader.get_num_labels()
 model_save_path = 'output/training_nli_'+model_name+'-'+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-working_dir = 'output/'
+working_dir = ARGS.working_dir + '/' #'output/'
 
 if not os.path.exists(working_dir):
   os.makedirs(working_dir)
@@ -71,14 +71,15 @@ def get_tok_weights(model, weightfile, a=1e-3):
           N += freq
 
   for key, value in d.items():
-      d[key] = a / (a + value/N)
+      print(a, value, N)
+      d[key] = a / (a + value / N)
 
   return d
 
 wid2weight = get_tok_weights(
   word_embedding_model,
   weightfile='aux/enwiki_vocab_min200.txt',
-  a=ARGS.alpha)
+  a=float(ARGS.alpha))
 word_weights = models.WordWeights(
   vocab=list(word_embedding_model.tokenizer.vocab),
   word_weights=wid2weight,

@@ -98,7 +98,7 @@ class SentencesDataset(Dataset):
 
         for ex_index, example in enumerate(iterator):
             ################################
-            if ex_index > 10: continue
+            # if ex_index > 10: continue
             ################################
             if label_type is None:
                 if isinstance(example.label, int):
