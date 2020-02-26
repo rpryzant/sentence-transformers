@@ -14,6 +14,7 @@ import logging
 from datetime import datetime
 from collections import defaultdict
 
+import aux.util as util
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -23,6 +24,9 @@ parser.add_argument("--alpha", default=1e-3, help='smoothing term')
 parser.add_argument("--fw_finetune", action='store_true')
 parser.add_argument("--fw_eval", action='store_true')
 parser.add_argument("--fw_train", action='store_true')
+parser.add_argument("--remove_pc_train", action='store_true')
+parser.add_argument("--remove_pc_test", action='store_true')
+parser.add_argument("--pc_sample_size", default=50000, help='sample size for pca')
 ARGS = parser.parse_args()
 
 
@@ -71,7 +75,7 @@ def get_tok_weights(model, weightfile, a=1e-3):
           N += freq
 
   for key, value in d.items():
-      print(a, value, N)
+      # print(a, value, N)
       d[key] = a / (a + value / N)
 
   return d
@@ -121,8 +125,6 @@ num_epochs = 1
 warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1) #10% of train data for warm-up
 logging.info("Warmup-steps: {}".format(warmup_steps))
 
-
-
 # Train the model
 model.fit(train_objectives=[(train_dataloader, train_loss)],
           evaluator=evaluator,
@@ -141,8 +143,25 @@ model.fit(train_objectives=[(train_dataloader, train_loss)],
 ##############################################################################
 
 model = SentenceTransformer(model_save_path)
+
+
 test_data = SentencesDataset(examples=sts_reader.get_examples("sts-test.csv"), model=model)
 test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
-evaluator = EmbeddingSimilarityEvaluator(test_dataloader)
+
+
+pc = None
+if ARGS.remove_pc_train:
+  embs = util.embed_dataloader(train_dataloader, model,
+    sample_size=ARGS.pc_sample_size, data_size=len(train_data))
+  pc = util.compute_pc(embs)
+elif ARGS.remove_pc_test:
+  embs = util.embed_dataloader(test_dataloader, model,
+    sample_size=ARGS.pc_sample_size, data_size=len(train_data))
+  pc = util.compute_pc(embs)
+
+
+evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
+  removal_direction=pc)
+
 
 model.evaluate(evaluator, output_path=working_dir + 'final_output')

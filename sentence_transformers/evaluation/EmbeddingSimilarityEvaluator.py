@@ -1,3 +1,7 @@
+import sys
+sys.path.append('../../aux')
+import aux.util as util
+
 from . import SentenceEvaluator, SimilarityFunction
 from torch.utils.data import DataLoader
 
@@ -22,7 +26,8 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
     """
 
 
-    def __init__(self, dataloader: DataLoader, main_similarity: SimilarityFunction = None, name: str = '', show_progress_bar: bool = None):
+    def __init__(self, dataloader: DataLoader, main_similarity: SimilarityFunction = None, name: str = '', show_progress_bar: bool = None,
+        removal_direction=None):
         """
         Constructs an evaluator based for the dataset
 
@@ -46,6 +51,9 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.csv_file: str = "similarity_evaluation"+name+"_results.csv"
         self.csv_headers = ["epoch", "steps", "cosine_pearson", "cosine_spearman", "euclidean_pearson", "euclidean_spearman", "manhattan_pearson", "manhattan_spearman", "dot_pearson", "dot_spearman"]
+
+        self.removal_direction = removal_direction
+
 
     def __call__(self, model: 'SequentialSentenceEmbedder', output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
         model.eval()
@@ -77,6 +85,14 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
             labels.extend(label_ids.to("cpu").numpy())
             embeddings1.extend(emb1)
             embeddings2.extend(emb2)
+
+        if self.removal_direction is not None:
+            treated_embeddings = util.remove_pc(
+                np.array(embeddings1 + embeddings2),
+                pc=self.removal_direction)
+            emb1_len = len(embeddings1)
+            embeddings1 = treated_embeddings[:emb1_len, :]
+            embeddings2 = treated_embeddings[emb1_len:, :]
 
         try:
             cosine_scores = 1 - (paired_cosine_distances(embeddings1, embeddings2))
