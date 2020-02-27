@@ -27,6 +27,8 @@ class STSDataReader:
                           delimiter=self.delimiter, quoting=self.quoting)
         examples = []
         for id, row in enumerate(data):
+            if not row[self.score_col_idx]:
+                continue
             score = float(row[self.score_col_idx])
             if self.normalize_scores:  # Normalize to a 0...1 value
                 score = (score - self.min_score) / (self.max_score - self.min_score)

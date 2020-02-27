@@ -87,12 +87,8 @@ class EmbeddingSimilarityEvaluator(SentenceEvaluator):
             embeddings2.extend(emb2)
 
         if self.removal_direction is not None:
-            treated_embeddings = util.remove_pc(
-                np.array(embeddings1 + embeddings2),
-                pc=self.removal_direction)
-            emb1_len = len(embeddings1)
-            embeddings1 = treated_embeddings[:emb1_len, :]
-            embeddings2 = treated_embeddings[emb1_len:, :]
+            embeddings1 = util.remove_pc(np.array(embeddings1), pc=self.removal_direction)
+            embeddings2 = util.remove_pc(np.array(embeddings2), pc=self.removal_direction)
 
         try:
             cosine_scores = 1 - (paired_cosine_distances(embeddings1, embeddings2))

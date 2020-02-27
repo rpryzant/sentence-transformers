@@ -14,3 +14,7 @@ The AllNLI dataset is the concatenation of the SNLI dataset (https://nlp.stanfor
 
 # STS Benchmark
 The STS Benchmark (http://ixa2.si.ehu.eus/stswiki) contains sentence pairs with human gold score for their similarity.
+
+
+sts data from 
+http://ixa2.si.ehu.es/stswiki/index.php/Main_Page

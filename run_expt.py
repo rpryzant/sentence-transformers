@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import math
 from sentence_transformers import models, losses
 from sentence_transformers import SentencesDataset, LoggingHandler, SentenceTransformer
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator, SimilarityFunction
 from sentence_transformers.readers import *
 import logging
 from datetime import datetime
@@ -20,13 +20,14 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--working_dir", default='output/')
 parser.add_argument("--fw", action='store_true', help='freq weighting')
-parser.add_argument("--alpha", default=1e-3, help='smoothing term')
+parser.add_argument("--alpha", default=2e-5, help='smoothing term')
 parser.add_argument("--fw_finetune", action='store_true')
 parser.add_argument("--fw_eval", action='store_true')
 parser.add_argument("--fw_train", action='store_true')
 parser.add_argument("--remove_pc_train", action='store_true')
 parser.add_argument("--remove_pc_test", action='store_true')
-parser.add_argument("--pc_sample_size", default=50000, help='sample size for pca')
+parser.add_argument("--pc_sample_size", default=100000, help='sample size for pca')
+parser.add_argument("--replicates", default=1, type=int, help='number of experimental replicates')
 ARGS = parser.parse_args()
 
 
@@ -40,7 +41,7 @@ logging.basicConfig(format='%(asctime)s - %(message)s',
 
 # Read the dataset
 model_name = 'bert-base-uncased'
-batch_size = 24
+batch_size = 16
 nli_reader = NLIDataReader('examples/datasets/AllNLI')
 sts_reader = STSDataReader('examples/datasets/stsbenchmark')
 train_num_labels = nli_reader.get_num_labels()
@@ -84,6 +85,10 @@ wid2weight = get_tok_weights(
   word_embedding_model,
   weightfile='aux/enwiki_vocab_min200.txt',
   a=float(ARGS.alpha))
+
+
+# for replicate in range(ARGS.replicates):
+
 word_weights = models.WordWeights(
   vocab=list(word_embedding_model.tokenizer.vocab),
   word_weights=wid2weight,
@@ -106,8 +111,6 @@ else:
   train_data.save(working_dir + 'train_data')
 train_dataloader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
 train_loss = losses.SoftmaxLoss(model=model, sentence_embedding_dimension=model.get_sentence_embedding_dimension(), num_labels=train_num_labels)
-
-
 
 logging.info("Read STSbenchmark dev dataset")
 
@@ -135,33 +138,86 @@ model.fit(train_objectives=[(train_dataloader, train_loss)],
           )
 
 
-
 ##############################################################################
 #
-# Load the stored model and evaluate its performance on STS benchmark dataset
+# Load the stored model and evaluate on each test set
 #
 ##############################################################################
 
 model = SentenceTransformer(model_save_path)
 
+test_sets = {
+  'SICK-r': SentencesDataset(examples=STSDataReader(
+      'examples/datasets/SICK',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=4).get_examples("SICK.txt"), model=model),
 
-test_data = SentencesDataset(examples=sts_reader.get_examples("sts-test.csv"), model=model)
-test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
+  'STSb': SentencesDataset(
+    examples=sts_reader.get_examples("sts-test.csv"), model=model),
 
+  'STS12': SentencesDataset(
+    examples=STSDataReader(
+      'examples/datasets/sts12',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=0).get_examples("test.csv"), model=model),
+  'STS13': SentencesDataset(    
+    examples=STSDataReader(
+      'examples/datasets/sts13',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=0).get_examples("test.csv"), model=model),
+  'STS14': SentencesDataset(    
+    examples=STSDataReader(
+      'examples/datasets/sts14',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=0).get_examples("test.csv"), model=model),
 
-pc = None
-if ARGS.remove_pc_train:
-  embs = util.embed_dataloader(train_dataloader, model,
-    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
-  pc = util.compute_pc(embs)
-elif ARGS.remove_pc_test:
-  embs = util.embed_dataloader(test_dataloader, model,
-    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
-  pc = util.compute_pc(embs)
+  'STS15': SentencesDataset(examples=STSDataReader(
+      'examples/datasets/sts15',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=0).get_examples("test.csv"), model=model),
+  'STS16': SentencesDataset(examples=STSDataReader(
+      'examples/datasets/sts16',
+      s1_col_idx=1,
+      s2_col_idx=2,
+      score_col_idx=0).get_examples("test.csv"), model=model),
 
+}
 
-evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
-  removal_direction=pc)
+out = open(os.path.join(working_dir, 'output.csv'), 'a')
 
+for name, test_data in test_sets.items():
+  test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
 
-model.evaluate(evaluator, output_path=working_dir + 'final_output')
+  evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
+    main_similarity=SimilarityFunction.COSINE)
+
+  plain_score = model.evaluate(evaluator)
+  out.write('%d\t%s\tplain\t%.2f\n' % (replicate, name, plain_score))
+
+  if ARGS.remove_pc_train:
+    embs = util.embed_dataloader(train_dataloader, model,
+      sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
+    pc = util.compute_pc(embs)
+    evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
+      removal_direction=pc,
+      main_similarity=SimilarityFunction.COSINE)
+    train_pc_score = model.evaluate(evaluator)
+    out.write('%d\t%s\ttrainPC\t%.2f\n' % (replicate, name, train_pc_score))
+
+  if ARGS.remove_pc_test:
+    embs = util.embed_dataloader(test_dataloader, model,
+      sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
+    pc = util.compute_pc(embs)
+    evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
+      removal_direction=pc,
+      main_similarity=SimilarityFunction.COSINE)
+    test_pc_score = model.evaluate(evaluator)
+    out.write('%d\t%s\ttestPC\t%.2f\n' % (replicate, name, test_pc_score))
+
+  # if os.path.exists(model_save_path) and replicate < ARGS.replicates - 1:
+  #   os.rmdir(model_save_path)

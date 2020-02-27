@@ -59,6 +59,7 @@ class WordWeights(nn.Module):
         else:
             features, aux = features_aux, None
 
+        # Short circuit out
         if self.eval_only and self.training:
             return features_aux
         if self.train_only and not self.training:
