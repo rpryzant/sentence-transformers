@@ -44,8 +44,8 @@ batch_size = 24
 nli_reader = NLIDataReader('examples/datasets/AllNLI')
 sts_reader = STSDataReader('examples/datasets/stsbenchmark')
 train_num_labels = nli_reader.get_num_labels()
-model_save_path = 'output/training_nli_'+model_name+'-'+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 working_dir = ARGS.working_dir + '/' #'output/'
+model_save_path = working_dir + '/training_nli_'+model_name+'-'+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 if not os.path.exists(working_dir):
   os.makedirs(working_dir)
@@ -152,11 +152,11 @@ test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
 pc = None
 if ARGS.remove_pc_train:
   embs = util.embed_dataloader(train_dataloader, model,
-    sample_size=ARGS.pc_sample_size, data_size=len(train_data))
+    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
   pc = util.compute_pc(embs)
 elif ARGS.remove_pc_test:
   embs = util.embed_dataloader(test_dataloader, model,
-    sample_size=ARGS.pc_sample_size, data_size=len(train_data))
+    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
   pc = util.compute_pc(embs)
 
 
