@@ -61,7 +61,7 @@ def remove_pc(X, npc=1, pc=None):
     if pc is None:
         pc = compute_pc(X, npc)
         print("HERE")
-    print(pc)
+    # print(pc)
     if npc==1:
         XX = X - X.dot(pc.transpose()) * pc
     else:
