@@ -19,6 +19,7 @@ import aux.util as util
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--working_dir", default='output/')
+parser.add_argument("--glove_vecs", action='store_true', help='use a glove vector model')
 parser.add_argument("--fw", action='store_true', help='freq weighting')
 parser.add_argument("--alpha", default=2e-5, help='smoothing term')
 parser.add_argument("--fw_finetune", action='store_true')
@@ -46,66 +47,70 @@ nli_reader = NLIDataReader('examples/datasets/AllNLI')
 sts_reader = STSDataReader('examples/datasets/stsbenchmark')
 train_num_labels = nli_reader.get_num_labels()
 working_dir = ARGS.working_dir + '/' #'output/'
+if not os.path.exists(working_dir):
+  os.makedirs(working_dir)
+
 model_save_path = [x for x in os.listdir(working_dir) if 'training_nli' in x]
 if len(model_save_path) == 0:
   model_save_path = working_dir + '/training_nli_'+model_name+'-'+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 else:
   model_save_path = os.path.join(working_dir, model_save_path[0])
 
-if not os.path.exists(working_dir):
-  os.makedirs(working_dir)
 
 
-# # Use BERT for mapping tokens to embeddings
-# word_embedding_model = models.BERT(model_name)
+# Use BERT for mapping tokens to embeddings
+if ARGS.glove_vecs:
+  word_embedding_model = models.WordEmbeddings.from_text_file('glove.6B.300d.txt.gz')
+else:
+  word_embedding_model = models.BERT(model_name)
 
-# # Apply mean pooling to get one fixed sized sentence vector
-# pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(),
-#                                pooling_mode_mean_tokens=True,
-#                                pooling_mode_cls_token=False,
-#                                pooling_mode_max_tokens=False,
-#                                pooling_mode_ParsePOOL=False)
-
-
-# def get_tok_weights(model, weightfile, a=1e-3):
-#   vocab = list(model.tokenizer.vocab)
-
-#   d = defaultdict(float)
-#   N = 0.0
-#   for l in open(weightfile):
-#       word, freq = l.strip().split()
-#       freq = float(freq)
-#       for tok_idx in model.tokenize(word):
-#           d[vocab[tok_idx]] += freq
-#           N += freq
-
-#   for key, value in d.items():
-#       # print(a, value, N)
-#       d[key] = a / (a + value / N)
-
-#   return d
-
-# wid2weight = get_tok_weights(
-#   word_embedding_model,
-#   weightfile='aux/enwiki_vocab_min200.txt',
-#   a=float(ARGS.alpha))
+# Apply mean pooling to get one fixed sized sentence vector
+pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension(),
+                               pooling_mode_mean_tokens=True,
+                               pooling_mode_cls_token=False,
+                               pooling_mode_max_tokens=False,
+                               pooling_mode_ParsePOOL=False)
 
 
-# # for replicate in range(ARGS.replicates):
-# replicate = 1
+def get_tok_weights(model, weightfile, a=1e-3):
+  vocab = list(model.tokenizer.vocab)
 
-# word_weights = models.WordWeights(
-#   vocab=list(word_embedding_model.tokenizer.vocab),
-#   word_weights=wid2weight,
-#   unknown_word_weight=1.0,
-#   finetune=ARGS.fw_finetune,
-#   eval_only=ARGS.fw_eval,
-#   train_only=ARGS.fw_train)
+  d = defaultdict(float)
+  N = 0.0
+  for l in open(weightfile):
+      word, freq = l.strip().split()
+      freq = float(freq)
+      for tok_idx in model.tokenize(word):
+          d[vocab[tok_idx]] += freq
+          N += freq
 
-# if ARGS.fw:
-#   model = SentenceTransformer(modules=[word_embedding_model, word_weights, pooling_model])
-# else:
-#   model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
+  for key, value in d.items():
+      # print(a, value, N)
+      d[key] = a / (a + value / N)
+
+  return d
+
+wid2weight = get_tok_weights(
+  word_embedding_model,
+  weightfile='aux/enwiki_vocab_min200.txt',
+  a=float(ARGS.alpha))
+
+
+# for replicate in range(ARGS.replicates):
+replicate = 1
+
+word_weights = models.WordWeights(
+  vocab=list(word_embedding_model.tokenizer.vocab),
+  word_weights=wid2weight,
+  unknown_word_weight=1.0,
+  finetune=ARGS.fw_finetune,
+  eval_only=ARGS.fw_eval,
+  train_only=ARGS.fw_train)
+
+if ARGS.fw:
+  model = SentenceTransformer(modules=[word_embedding_model, word_weights, pooling_model])
+else:
+  model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
 # Convert the dataset to a DataLoader ready for training
 logging.info("Read AllNLI train dataset")
@@ -116,32 +121,32 @@ else:
   train_data.save(working_dir + 'train_data')
 train_dataloader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
 
-# train_loss = losses.SoftmaxLoss(model=model, sentence_embedding_dimension=model.get_sentence_embedding_dimension(), num_labels=train_num_labels)
+train_loss = losses.SoftmaxLoss(model=model, sentence_embedding_dimension=model.get_sentence_embedding_dimension(), num_labels=train_num_labels)
 
-# logging.info("Read STSbenchmark dev dataset")
+logging.info("Read STSbenchmark dev dataset")
 
-# if os.path.exists(working_dir + 'dev_data.toks'):
-#   dev_data = SentencesDataset.load(working_dir + 'dev_data')
-# else:
-#   dev_data = SentencesDataset(examples=sts_reader.get_examples('sts-dev.csv'), model=model)
-#   dev_data.save(working_dir + 'dev_data')
-# dev_dataloader = DataLoader(dev_data, shuffle=False, batch_size=batch_size)
-# evaluator = EmbeddingSimilarityEvaluator(dev_dataloader)
+if os.path.exists(working_dir + 'dev_data.toks'):
+  dev_data = SentencesDataset.load(working_dir + 'dev_data')
+else:
+  dev_data = SentencesDataset(examples=sts_reader.get_examples('sts-dev.csv'), model=model)
+  dev_data.save(working_dir + 'dev_data')
+dev_dataloader = DataLoader(dev_data, shuffle=False, batch_size=batch_size)
+evaluator = EmbeddingSimilarityEvaluator(dev_dataloader)
 
-# # Configure the training
-# num_epochs = 1
+# Configure the training
+num_epochs = 1
 
-# warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1) #10% of train data for warm-up
-# logging.info("Warmup-steps: {}".format(warmup_steps))
+warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1) #10% of train data for warm-up
+logging.info("Warmup-steps: {}".format(warmup_steps))
 
-# Train the model
-#model.fit(train_objectives=[(train_dataloader, train_loss)],
-#          evaluator=evaluator,
-#          epochs=num_epochs,
-#          evaluation_steps=1000,
-#          warmup_steps=warmup_steps,
-#          output_path=model_save_path
-#          )
+Train the model
+model.fit(train_objectives=[(train_dataloader, train_loss)],
+         evaluator=evaluator,
+         epochs=num_epochs,
+         evaluation_steps=1000,
+         warmup_steps=warmup_steps,
+         output_path=model_save_path
+         )
 
 
 ##############################################################################
@@ -211,14 +216,14 @@ for name, test_data in test_sets.items():
     main_similarity=SimilarityFunction.COSINE)
 
   plain_score = model.evaluate(evaluator)
-  out.write('%d\t%s\tplain\t%.2f\n' % (replicate, name, plain_score))
+  out.write('%s\t%d\t%s\tplain\t%.2f\n' % (working_dir, replicate, name, plain_score))
 
   if ARGS.remove_pc_train:
     evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
       removal_direction=train_pc,
       main_similarity=SimilarityFunction.COSINE)
     train_pc_score = model.evaluate(evaluator)
-    out.write('%d\t%s\ttrainPC\t%.2f\n' % (replicate, name, train_pc_score))
+    out.write('%s\t%d\t%s\ttrainPC\t%.2f\n' % (working_dir, replicate, name, train_pc_score))
 
   if ARGS.remove_pc_test:
     embs = util.embed_dataloader(test_dataloader, model,
@@ -228,7 +233,7 @@ for name, test_data in test_sets.items():
       removal_direction=pc,
       main_similarity=SimilarityFunction.COSINE)
     test_pc_score = model.evaluate(evaluator)
-    out.write('%d\t%s\ttestPC\t%.2f\n' % (replicate, name, test_pc_score))
+    out.write('%s\t%d\t%s\ttestPC\t%.2f\n' % (working_dir, replicate, name, test_pc_score))
 
   # if os.path.exists(model_save_path) and replicate < ARGS.replicates - 1:
   #   os.rmdir(model_save_path)
