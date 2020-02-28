@@ -49,6 +49,7 @@ class SentenceTransformer(nn.Sequential):
 
 
                 if not os.listdir(model_path):
+                    print("HERRE!!!!!")
                     if model_url[-1] is "/":
                         model_url = model_url[:-1]
                     logging.info("Downloading sentence transformer model from {} and saving it at {}".format(model_url, model_path))
