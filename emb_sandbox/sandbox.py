@@ -127,10 +127,7 @@ replicates = sorted(
     itertools.product(*[range(70), range(2, 20), ['neither', 'both', 'cluster']]),
     key=lambda x: random.random())
 
-for NPC, K, strategy in replicates: 
-    NPC = 5
-    K = 5
-
+for NPC, K, strategy in tqdm(replicates): 
     correlations = []
 
     # for f in tqdm(os.listdir('.')):
@@ -145,15 +142,15 @@ for NPC, K, strategy in replicates:
 
 
         # emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
-        emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K,
-            strategy='cluster')
+        emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
 
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
         correlations.append(corr)
 
-    print(NPC, K, np.mean(correlations))
-    quit()
+    print('\t'.join([str(x) for x in 
+        [NPC, K, strategy, np.mean(correlations)]]))
+
 
 
 
