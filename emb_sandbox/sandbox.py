@@ -131,43 +131,110 @@ tgt_root = sys.argv[1]
 
 
 
-# TEST OUT DOMAIN SHIFT (no clusters)
+# TEST OUT PRE-CENTERING
 NPC = 1
 K = -1
 strategy = 'no clustering'
-for NPC in range(70):
-    train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
-    embs = train['embs']
-    embs = embs[:3000]
-    # emb2 = train['emb2']
-    labels = train['labels']
-    # embs = np.concatenate((emb1, emb2), axis=0)
-    pc = compute_pc(embs, NPC)
 
+centers = {}
+for f in os.listdir(tgt_root):
+    if not f.endswith('.embs') or 'train' in f:
+        continue
+
+    tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
+    tokemb1 = tgt['tokemb1']
+    tokemb2 = tgt['tokemb2']
+
+    # get center vecs (mu or pc)
+    to_center = []
+    for seq in list(tokemb1) + list(tokemb2):
+        for elem in seq:
+            # skip once hit paddings
+            if elem[0] == 0.0:
+                break
+            else:
+                to_center.append(elem)
+    pc = compute_pc(np.array(to_center), 1)
+    mu = np.mean(np.array(to_center), axis=0)
+    centers[f] = (pc, mu)
+print('done with centers')
+
+def center_and_mean(seq, center=None):
+    if center is not None:
+        mu, pc = center
+    l = 0
+    for i in range(len(seq)):
+        if seq[i][0] != 0:
+            # seq[i] = seq[i] - mu
+            seq[i] = remove_pc(seq[i], npc=1, pc=pc)
+            l += 1
+    return np.sum(seq, axis=0) / l
+
+for NPC in range(70):
     correlations = []
-    # for f in tqdm(os.listdir('.')):
     for f in os.listdir(tgt_root):
         if not f.endswith('.embs') or 'train' in f:
             continue
-        f = np.load(open(os.path.join(tgt_root, f), 'rb'))
-        emb1 = f['emb1']
-        emb2 = f['emb2']
-        labels = f['labels']
-        emb1 = remove_pc(emb1, npc=NPC, pc=pc)
-        emb2 = remove_pc(emb2, npc=NPC, pc=pc)
+
+        tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
+        tokemb1 = tgt['tokemb1']
+        tokemb2 = tgt['tokemb2']
+
+        emb1 = []
+        emb2 = []
+        for seqA, seqB in zip(tokemb1, tokemb2):
+            emb1.append(center_and_mean(seqA, center=centers[f]))
+            emb2.append(center_and_mean(seqB, center=centers[f]))
+        emb1 = np.array(emb1)
+        emb2 = np.array(emb2)
+
+        labels = tgt['labels']
+
+        emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
+        # emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
         correlations.append(corr)
+
     print('\t'.join([str(x) for x in 
         [NPC, K, strategy, np.mean(correlations)]]))
 
-
-
-
-
-
-
 quit()
+
+
+
+# # TEST OUT DOMAIN SHIFT (no clusters)
+# NPC = 1
+# K = -1
+# strategy = 'no clustering'
+# for NPC in range(70):
+#     train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+#     embs = train['embs']
+#     embs = embs[:3000]
+#     # emb2 = train['emb2']
+#     labels = train['labels']
+#     # embs = np.concatenate((emb1, emb2), axis=0)
+#     pc = compute_pc(embs, NPC)
+
+#     correlations = []
+#     # for f in tqdm(os.listdir('.')):
+#     for f in os.listdir(tgt_root):
+#         if not f.endswith('.embs') or 'train' in f:
+#             continue
+#         f = np.load(open(os.path.join(tgt_root, f), 'rb'))
+#         emb1 = f['emb1']
+#         emb2 = f['emb2']
+#         labels = f['labels']
+#         emb1 = remove_pc(emb1, npc=NPC, pc=pc)
+#         emb2 = remove_pc(emb2, npc=NPC, pc=pc)
+#         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
+#         corr = spearmanr(labels, cosine_scores).correlation
+#         correlations.append(corr)
+#     print('\t'.join([str(x) for x in 
+#         [NPC, K, strategy, np.mean(correlations)]]))
+
+
+# quit()
 
 
 
@@ -177,12 +244,12 @@ quit()
 
 # HYPERPARAM SEARCH (WITH CLUSTERS)
 
-replicates = sorted(
-    itertools.product(*[range(70), range(2, 20), ['neither', 'both', 'cluster']]),
-    key=lambda x: random.random())
-for NPC, K, strategy in tqdm(replicates): 
-# strategy = K = None
-# for NPC in range(71):
+# replicates = sorted(
+#     itertools.product(*[range(70), range(2, 20), ['neither', 'both', 'cluster']]),
+#     key=lambda x: random.random())
+# for NPC, K, strategy in tqdm(replicates): 
+strategy = K = None
+for NPC in range(71):
     correlations = []
     # for f in tqdm(os.listdir('.')):
     for f in os.listdir(tgt_root):
@@ -192,7 +259,7 @@ for NPC, K, strategy in tqdm(replicates):
         emb1 = f['emb1']
         emb2 = f['emb2']
         labels = f['labels']
-        # emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
+        emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
         # emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
