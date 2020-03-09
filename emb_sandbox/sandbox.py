@@ -1,10 +1,13 @@
+# python sandbox.py bert_embs
+# python sandbox.py glove_embs
+
 import sys
 import numpy as np
 from sklearn.metrics.pairwise import paired_cosine_distances, paired_euclidean_distances, paired_manhattan_distances
 from scipy.stats import pearsonr, spearmanr
 from sklearn.decomposition import TruncatedSVD
 import os
-from sklearn.cluster import KMeans, SpectralClustering
+from sklearn.cluster import KMeans, SpectralClustering, AffinityPropagation
 from tqdm import tqdm
 import random
 import itertools
@@ -48,6 +51,10 @@ def treat_clustering(emb1, emb2, npc, k, strategy='neither'):
         embs = np.concatenate((emb1, emb2), axis=0)
 
     kmeans = KMeans(n_clusters=k).fit(embs)
+    # kmeans = AffinityPropagation().fit(embs)
+    # print(kmeans.labels_); quit()
+    # print(kmeans)
+    # kmeans = SpectralClustering(n_clusters=k).fit(embs)
 
     cluster_embs = [None] * k
     for i, (emb, cluster) in enumerate(zip(embs, kmeans.labels_)):
@@ -116,38 +123,80 @@ def treat_pc(emb1, emb2, npc):
 
 
 
-# neither
-# 5 5 0.7351470132727655
-# both
-# 5 5 0.7333437322101058
-# cluster only
-# 5 5 0.7403271596663675
+import sys
+
+tgt_root = sys.argv[1]
+
+
+
+
+
+# TEST OUT DOMAIN SHIFT (no clusters)
+NPC = 1
+K = -1
+strategy = 'no clustering'
+for NPC in range(70):
+    train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+    embs = train['embs']
+    embs = embs[:3000]
+    # emb2 = train['emb2']
+    labels = train['labels']
+    # embs = np.concatenate((emb1, emb2), axis=0)
+    pc = compute_pc(embs, NPC)
+
+    correlations = []
+    # for f in tqdm(os.listdir('.')):
+    for f in os.listdir(tgt_root):
+        if not f.endswith('.embs') or 'train' in f:
+            continue
+        f = np.load(open(os.path.join(tgt_root, f), 'rb'))
+        emb1 = f['emb1']
+        emb2 = f['emb2']
+        labels = f['labels']
+        emb1 = remove_pc(emb1, npc=NPC, pc=pc)
+        emb2 = remove_pc(emb2, npc=NPC, pc=pc)
+        cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
+        corr = spearmanr(labels, cosine_scores).correlation
+        correlations.append(corr)
+    print('\t'.join([str(x) for x in 
+        [NPC, K, strategy, np.mean(correlations)]]))
+
+
+
+
+
+
+
+quit()
+
+
+
+
+
+
+
+# HYPERPARAM SEARCH (WITH CLUSTERS)
 
 replicates = sorted(
     itertools.product(*[range(70), range(2, 20), ['neither', 'both', 'cluster']]),
     key=lambda x: random.random())
-
 for NPC, K, strategy in tqdm(replicates): 
+# strategy = K = None
+# for NPC in range(71):
     correlations = []
-
     # for f in tqdm(os.listdir('.')):
-    for f in os.listdir('.'):
+    for f in os.listdir(tgt_root):
         if not f.endswith('.embs') or 'train' in f:
             continue
-
-        f = np.load(open(f, 'rb'))
+        f = np.load(open(os.path.join(tgt_root, f), 'rb'))
         emb1 = f['emb1']
         emb2 = f['emb2']
         labels = f['labels']
-
-
         # emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
-        emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
-
+        # emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
         correlations.append(corr)
-
     print('\t'.join([str(x) for x in 
         [NPC, K, strategy, np.mean(correlations)]]))
 
