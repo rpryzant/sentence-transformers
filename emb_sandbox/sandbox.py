@@ -131,46 +131,77 @@ tgt_root = sys.argv[1]
 
 
 
-# TEST OUT PRE-CENTERING
+
+
+
+
+
+
+
+
+# PRE-CENTERING DOMAIN SHIFT
 NPC = 1
 K = -1
 strategy = 'no clustering'
 
-centers = {}
-for f in os.listdir(tgt_root):
-    if not f.endswith('.embs') or 'train' in f:
-        continue
+# centers = {}
+# for f in os.listdir(tgt_root):
+#     if not f.endswith('.embs') or 'train' in f:
+#         continue
 
-    tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
-    tokemb1 = tgt['tokemb1']
-    tokemb2 = tgt['tokemb2']
+#     tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
+#     tokemb1 = tgt['tokemb1']
+#     tokemb2 = tgt['tokemb2']
 
-    # get center vecs (mu or pc)
-    to_center = []
-    for seq in list(tokemb1) + list(tokemb2):
-        for elem in seq:
-            # skip once hit paddings
-            if elem[0] == 0.0:
-                break
-            else:
-                to_center.append(elem)
-    pc = compute_pc(np.array(to_center), 1)
-    mu = np.mean(np.array(to_center), axis=0)
-    centers[f] = (pc, mu)
-print('done with centers')
+#     # get center vecs (mu or pc)
+#     to_center = []
+#     for seq in list(tokemb1) + list(tokemb2):
+#         for elem in seq:
+#             # skip once hit paddings
+#             if elem[0] == 0.0:
+#                 break
+#             else:
+#                 to_center.append(elem)
+#     pc = compute_pc(np.array(to_center), 1)
+#     mu = np.mean(np.array(to_center), axis=0)
+#     centers[f] = (pc, mu)
+# print('done with centers')
+
+train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+tokemb1 = train['tokemb1']
+tokemb2 = train['tokemb2']
+to_center = []
+for seq in list(tokemb1) + list(tokemb2):
+    for elem in seq:
+        # skip once hit paddings
+        if elem[0] == 0.0:
+            break
+        else:
+            to_center.append(elem)
+train_pc = compute_pc(np.array(to_center), 1)
+
 
 def center_and_mean(seq, center=None):
-    if center is not None:
-        mu, pc = center
+    pc = center
+    # if center is not None:
+    #     pc, mu = center
     l = 0
     for i in range(len(seq)):
         if seq[i][0] != 0:
-            # seq[i] = seq[i] - mu
+#            seq[i] = seq[i] - mu
             seq[i] = remove_pc(seq[i], npc=1, pc=pc)
             l += 1
     return np.sum(seq, axis=0) / l
 
+
 for NPC in range(70):
+    train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+    emb1 = train['emb1']
+    emb2 = train['emb2']
+    labels = train['labels']
+    embs = np.concatenate((emb1, emb2), axis=0)
+    pc = compute_pc(embs, NPC)
+
     correlations = []
     for f in os.listdir(tgt_root):
         if not f.endswith('.embs') or 'train' in f:
@@ -183,15 +214,16 @@ for NPC in range(70):
         emb1 = []
         emb2 = []
         for seqA, seqB in zip(tokemb1, tokemb2):
-            emb1.append(center_and_mean(seqA, center=centers[f]))
-            emb2.append(center_and_mean(seqB, center=centers[f]))
+            emb1.append(center_and_mean(seqA, center=train_pc))
+            emb2.append(center_and_mean(seqB, center=train_pc))
         emb1 = np.array(emb1)
         emb2 = np.array(emb2)
 
         labels = tgt['labels']
 
-        emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
-        # emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
+        emb1 = remove_pc(emb1, npc=NPC, pc=pc)
+        emb2 = remove_pc(emb2, npc=NPC, pc=pc)
+
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
         correlations.append(corr)
@@ -200,6 +232,87 @@ for NPC in range(70):
         [NPC, K, strategy, np.mean(correlations)]]))
 
 quit()
+
+
+
+
+
+
+
+
+# TEST OUT PRE-CENTERING IN-DOMAIN
+# NPC = 1
+# K = -1
+# strategy = 'no clustering'
+
+# centers = {}
+# for f in os.listdir(tgt_root):
+#     if not f.endswith('.embs') or 'train' in f:
+#         continue
+
+#     tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
+#     tokemb1 = tgt['tokemb1']
+#     tokemb2 = tgt['tokemb2']
+
+#     # get center vecs (mu or pc)
+#     to_center = []
+#     for seq in list(tokemb1) + list(tokemb2):
+#         for elem in seq:
+#             # skip once hit paddings
+#             if elem[0] == 0.0:
+#                 break
+#             else:
+#                 to_center.append(elem)
+#     pc = compute_pc(np.array(to_center), 1)
+#     mu = np.mean(np.array(to_center), axis=0)
+#     centers[f] = (pc, mu)
+# print('done with centers')
+
+# def center_and_mean(seq, center=None):
+#     if center is not None:
+#         pc, mu = center
+#     l = 0
+#     for i in range(len(seq)):
+#         if seq[i][0] != 0:
+# #            seq[i] = seq[i] - mu
+#             seq[i] = remove_pc(seq[i], npc=1, pc=pc)
+#             l += 1
+#     return np.sum(seq, axis=0) / l
+
+# for NPC in range(70):
+#     correlations = []
+#     for f in os.listdir(tgt_root):
+#         if not f.endswith('.embs') or 'train' in f:
+#             continue
+
+#         tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
+#         tokemb1 = tgt['tokemb1']
+#         tokemb2 = tgt['tokemb2']
+
+#         emb1 = []
+#         emb2 = []
+#         for seqA, seqB in zip(tokemb1, tokemb2):
+#             emb1.append(center_and_mean(seqA, center=centers[f]))
+#             emb2.append(center_and_mean(seqB, center=centers[f]))
+#         emb1 = np.array(emb1)
+#         emb2 = np.array(emb2)
+
+#         labels = tgt['labels']
+
+#         emb1, emb2 = treat_pc(emb1, emb2, npc=NPC)
+#         # emb1, emb2 = treat_clustering(emb1, emb2, npc=NPC, k=K, strategy=strategy)
+#         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
+#         corr = spearmanr(labels, cosine_scores).correlation
+#         correlations.append(corr)
+
+#     print('\t'.join([str(x) for x in 
+#         [NPC, K, strategy, np.mean(correlations)]]))
+
+# quit()
+
+
+
+
 
 
 
