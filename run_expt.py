@@ -15,20 +15,27 @@ from datetime import datetime
 from collections import defaultdict
 
 import aux.util as util
+import numpy as np
+
 
 import argparse
 parser = argparse.ArgumentParser()
+
 parser.add_argument("--working_dir", default='output/')
 parser.add_argument("--glove_vecs", action='store_true', help='use a glove vector model')
-parser.add_argument("--fw", action='store_true', help='freq weighting')
 parser.add_argument("--alpha", default=2e-5, help='smoothing term')
-parser.add_argument("--fw_finetune", action='store_true')
-parser.add_argument("--fw_eval", action='store_true')
-parser.add_argument("--fw_train", action='store_true')
+parser.add_argument("--weighting_strategy", default=None, help='strategy for weighting vectors')
+parser.add_argument("--normalize_weights", action='store_true', help='normalize weights')
+parser.add_argument("--finetune_weights", action='store_true')
+parser.add_argument("--eval_weights", action='store_true', help='only use weights during eval')
+parser.add_argument("--train_weights", action='store_true', help='only use weights during training')
 parser.add_argument("--remove_pc_train", action='store_true')
 parser.add_argument("--remove_pc_test", action='store_true')
 parser.add_argument("--pc_sample_size", default=100000, help='sample size for pca')
+parser.add_argument("--npc", default=1, type=int, help='number of principal components to remove')
 parser.add_argument("--replicates", default=1, type=int, help='number of experimental replicates')
+parser.add_argument("--save_vecs", action='store_true', help='save vectors')
+
 ARGS = parser.parse_args()
 
 
@@ -72,43 +79,73 @@ pooling_model = models.Pooling(word_embedding_model.get_word_embedding_dimension
                                pooling_mode_ParsePOOL=False)
 
 
-def get_tok_weights(model, weightfile, a=1e-3):
-  vocab = list(model.tokenizer.vocab)
+def get_word_weights(model, word_freqs, doc_freqs, a=1e-3,
+                     mode='tfidf', normalize=False):
 
-  d = defaultdict(float)
-  N = 0.0
-  for l in open(weightfile):
-      word, freq = l.strip().split()
-      freq = float(freq)
-      for tok_idx in model.tokenize(word):
-          d[vocab[tok_idx]] += freq
-          N += freq
+  word_freq_lines = open(word_freqs).readlines()
+  doc_freq_lines = open(word_freqs).readlines()
 
-  for key, value in d.items():
-      # print(a, value, N)
-      d[key] = a / (a + value / N)
+  num_words = int(word_freq_lines[0])
+  num_docs = int(doc_freq_lines[0])
 
-  return d
+  word_freqs = dict([tuple(line.strip().split("\t")) for line in word_freq_lines[1:]])
+  doc_freqs = dict([tuple(line.strip().split("\t")) for line in doc_freq_lines[1:]])
+  s = 0
+  out = {}
+  for word, freq in word_freqs.items():
+    freq = float(freq)
+    s += freq
 
-wid2weight = get_tok_weights(
-  word_embedding_model,
-  weightfile='aux/enwiki_vocab_min200.txt',
-  a=float(ARGS.alpha))
+    tf = math.log(freq * 1.0)
+    inv_freq = a / (a + (freq / num_words) )
+    idf = math.log(num_docs / float(freq))
+
+    if mode == 'tfidf':
+      out[word] = tf * idf
+    elif mode == 'idf':
+      out[word] = idf
+    elif mode == 'tf':
+      out[word] = tf
+    elif mode == 'itf':
+      out[word] = inv_freq
+
+    # Words in the vocab that are not in the doc_frequencies file get a frequency of 1
+    if mode == 'tfidf':
+      unknown_word_weight = math.log(1.0) * math.log(num_docs / 1)
+    elif mode == 'idf':
+      unknown_word_weight = math.log(num_docs / 1)
+    elif mode == 'tf':
+      unknown_word_weight = math.log(1.0)
+    elif mode == 'itf':
+      unknown_word_weight = 1.0
+
+  if normalize:
+    for k, v in out.items():
+      out[k] = v * 1.0 / s
+    unknown_word_weight = 1.0 / s
+
+  return out, unknown_word_weight
 
 
 # for replicate in range(ARGS.replicates):
 replicate = 1
 
-word_weights = models.WordWeights(
-  vocab=list(word_embedding_model.tokenizer.vocab),
-  word_weights=wid2weight,
-  unknown_word_weight=1.0,
-  finetune=ARGS.fw_finetune,
-  eval_only=ARGS.fw_eval,
-  train_only=ARGS.fw_train)
 
-if ARGS.fw:
-  model = SentenceTransformer(modules=[word_embedding_model, word_weights, pooling_model])
+if ARGS.weighting_strategy is not None:
+  wid2weight, unk_weight = get_word_weights(
+    word_embedding_model,
+    word_freqs='aux/wikipedia_word_frequencies.txt',
+    doc_freqs='aux/wikipedia_doc_frequencies.txt',
+    a=ARGS.alpha,
+    mode=ARGS.weighting_strategy)
+  word_weights = models.WordWeights(
+    vocab=list(word_embedding_model.tokenizer.vocab),
+    word_weights=wid2weight,
+    unknown_word_weight=unk_weight,
+    finetune=ARGS.finetune_weights,
+    eval_only=ARGS.eval_weights,
+    train_only=ARGS.train_weights)
+  model = SentenceTransformer(modules=[word_embedding_model, word_weights, pooling_model])  
 else:
   model = SentenceTransformer(modules=[word_embedding_model, pooling_model])
 
@@ -139,14 +176,14 @@ num_epochs = 1
 warmup_steps = math.ceil(len(train_dataloader) * num_epochs * 0.1) #10% of train data for warm-up
 logging.info("Warmup-steps: {}".format(warmup_steps))
 
-Train the model
-model.fit(train_objectives=[(train_dataloader, train_loss)],
-         evaluator=evaluator,
-         epochs=num_epochs,
-         evaluation_steps=1000,
-         warmup_steps=warmup_steps,
-         output_path=model_save_path
-         )
+# Train the model
+# model.fit(train_objectives=[(train_dataloader, train_loss)],
+#          evaluator=evaluator,
+#          epochs=num_epochs,
+#          evaluation_steps=1000,
+#          warmup_steps=warmup_steps,
+#          output_path=model_save_path
+#          )
 
 
 ##############################################################################
@@ -154,7 +191,7 @@ model.fit(train_objectives=[(train_dataloader, train_loss)],
 # Load the stored model and evaluate on each test set
 #
 ##############################################################################
-
+print('loading from', model_save_path)
 model = SentenceTransformer(model_save_path)
 
 test_sets = {
@@ -204,16 +241,39 @@ out = open(os.path.join(working_dir, 'output.csv'), 'a')
 # hard code for now
 replicate = 1
 
-if ARGS.remove_pc_train:
-  embs = util.embed_dataloader(train_dataloader, model,
-    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
-  train_pc = util.compute_pc(embs)
 
+# SAVE VECS
+# e.g. python run_expt.py --glove_vecs --working_dir --save_vecs
+if ARGS.save_vecs:
+  tokemb1, tokemb2, embs1, embs2, labels = util.embed_dataloader(train_dataloader, model,
+    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
+  with open(os.path.join(working_dir, 'train.embs'), 'wb') as f:
+      np.savez(f, labels=labels, emb1=embs1, emb2=embs2,
+        tokemb1=tokemb1, tokemb2=tokemb2)
+
+  for name, test_data in test_sets.items():
+    test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
+    tokemb1, tokemb2, embs1, embs2, labels = util.embed_dataloader(test_dataloader, model,
+    sample_size=int(ARGS.pc_sample_size), data_size=len(test_dataloader))
+    with open(os.path.join(working_dir, name + '.embs'), 'wb') as f:
+        np.savez(f, labels=np.array(labels), emb1=embs1, emb2=embs2,
+          tokemb1=tokemb1, tokemb2=tokemb2)
+  quit()
+
+# precompute train pc
+if ARGS.remove_pc_train:
+  embs1, embs2, labels = util.embed_dataloader(train_dataloader, model,
+    sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
+  embs = np.concatenate((embs1, embs2), axis=0)
+  train_pc = util.compute_pc(embs, npc=int(ARGS.npc))
+
+
+# do each benchmark
 for name, test_data in test_sets.items():
   test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
 
   evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
-    main_similarity=SimilarityFunction.COSINE)
+    main_similarity=SimilarityFunction.COSINE, name=name)
 
   plain_score = model.evaluate(evaluator)
   out.write('%s\t%d\t%s\tplain\t%.2f\n' % (working_dir, replicate, name, plain_score))
@@ -226,9 +286,10 @@ for name, test_data in test_sets.items():
     out.write('%s\t%d\t%s\ttrainPC\t%.2f\n' % (working_dir, replicate, name, train_pc_score))
 
   if ARGS.remove_pc_test:
-    embs = util.embed_dataloader(test_dataloader, model,
+    embs1, embs2, labels = util.embed_dataloader(test_dataloader, model,
       sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
-    pc = util.compute_pc(embs)
+    embs = np.concatenate((embs1, embs2), axis=0)
+    pc = util.compute_pc(embs, npc=int(ARGS.npc))
     evaluator = EmbeddingSimilarityEvaluator(test_dataloader,
       removal_direction=pc,
       main_similarity=SimilarityFunction.COSINE)
