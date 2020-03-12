@@ -7,7 +7,7 @@ import torch
 import random
 import sys; sys.path.append('../sentence_transformers')
 from sentence_transformers.util import batch_to_device
-
+from tqdm import tqdm
 
 def get_tok_weights(model, weightfile, a=1e-3):
     d = defaultdict(float)
@@ -51,7 +51,7 @@ def compute_pc(X,npc=1):
     svd.fit(X)
     return svd.components_
 
-def remove_pc(X, npc=1, pc=None):
+def remove_pc(X, pc=None):
     """
     Remove the projection on the principal components
     :param X: X[i,:] is a data point
@@ -60,8 +60,9 @@ def remove_pc(X, npc=1, pc=None):
     """
     if pc is None:
         pc = compute_pc(X, npc)
-        # print("HERE")
-    # print(pc)
+
+    npc = pc.shape[0]
+
     if npc==1:
         XX = X - X.dot(pc.transpose()) * pc
     else:
@@ -72,25 +73,41 @@ def remove_pc(X, npc=1, pc=None):
 def embed_dataloader(dataloader, model, sample_size=-1, data_size=-1):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataloader.collate_fn = model.smart_batching_collate
+    labels = []
 
-    if sample_size > 0 and data_size > 0:
-        sample_rate = sample_size * 1.0 / data_size
+    # if sample_size > 0 and data_size > 0:
+    #     sample_rate = sample_size * 1.0 / data_size
 
-    embs = []
+    embs1 = []
+    embs2 = []
+    tok_embs1 = []
+    tok_embs2 = []
+    input_ids1 = []
+    input_ids2 = []
 
-    for step, batch in enumerate(dataloader):
+    for step, batch in tqdm(enumerate(dataloader)):
         features, label_ids = batch_to_device(batch, device)
+        labels.extend(label_ids.to("cpu").numpy())
+
         with torch.no_grad():
             emb1, emb2 = [model(sent_features)['sentence_embedding'].to("cpu").numpy() for sent_features in features]
+            tok_emb1, tok_emb2 = [model(sent_features)['tok_embs'].to("cpu").numpy() for sent_features in features]
+            
+            in1, in2 = [sent_features['input_ids'].to('cpu').numpy() for sent_features in features]
 
-            if random.random() < sample_rate:
-                embs += list(emb1)
-            if random.random() < sample_rate:
-                embs += list(emb2)
 
-    random.shuffle(embs)
+        embs1 += list(emb1)
+        embs2 += list(emb2)
+        tok_embs1 += list(tok_emb1)
+        tok_embs2 += list(tok_emb2)
+        input_ids1 += list(in1)
+        input_ids2 += list(in2)
 
-    return np.array(embs)
+        if len(embs1) + len(embs2) > sample_size:
+            break
+
+    # tok_embs* will be ragged in 2nd dim (padded seq len)
+    return np.array(tok_embs1), np.array(tok_embs2), np.array(embs1), np.array(embs2), labels, np.array(input_ids1), np.array(input_ids2)
 
 
 

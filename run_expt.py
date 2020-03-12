@@ -245,24 +245,28 @@ replicate = 1
 # SAVE VECS
 # e.g. python run_expt.py --glove_vecs --working_dir --save_vecs
 if ARGS.save_vecs:
-  tokemb1, tokemb2, embs1, embs2, labels = util.embed_dataloader(train_dataloader, model,
+  tokemb1, tokemb2, embs1, embs2, labels, in1, in2 = util.embed_dataloader(train_dataloader, model,
     sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
   with open(os.path.join(working_dir, 'train.embs'), 'wb') as f:
       np.savez(f, labels=labels, emb1=embs1, emb2=embs2,
         tokemb1=tokemb1, tokemb2=tokemb2)
+  with open(os.path.join(working_dir, 'train.ids'), 'wb') as f:
+      np.savez(f, in1=in1, in2=in2)
 
   for name, test_data in test_sets.items():
     test_dataloader = DataLoader(test_data, shuffle=False, batch_size=batch_size)
-    tokemb1, tokemb2, embs1, embs2, labels = util.embed_dataloader(test_dataloader, model,
+    tokemb1, tokemb2, embs1, embs2, labels, in1, in2 = util.embed_dataloader(test_dataloader, model,
     sample_size=int(ARGS.pc_sample_size), data_size=len(test_dataloader))
     with open(os.path.join(working_dir, name + '.embs'), 'wb') as f:
         np.savez(f, labels=np.array(labels), emb1=embs1, emb2=embs2,
           tokemb1=tokemb1, tokemb2=tokemb2)
+    with open(os.path.join(working_dir, name + '.ids'), 'wb') as f:
+        np.savez(f, in1=in1, in2=in2)
   quit()
 
 # precompute train pc
 if ARGS.remove_pc_train:
-  embs1, embs2, labels = util.embed_dataloader(train_dataloader, model,
+  embs1, embs2, labels, _, _ = util.embed_dataloader(train_dataloader, model,
     sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
   embs = np.concatenate((embs1, embs2), axis=0)
   train_pc = util.compute_pc(embs, npc=int(ARGS.npc))
@@ -286,7 +290,7 @@ for name, test_data in test_sets.items():
     out.write('%s\t%d\t%s\ttrainPC\t%.2f\n' % (working_dir, replicate, name, train_pc_score))
 
   if ARGS.remove_pc_test:
-    embs1, embs2, labels = util.embed_dataloader(test_dataloader, model,
+    embs1, embs2, labels, _, _ = util.embed_dataloader(test_dataloader, model,
       sample_size=int(ARGS.pc_sample_size), data_size=len(train_data))
     embs = np.concatenate((embs1, embs2), axis=0)
     pc = util.compute_pc(embs, npc=int(ARGS.npc))
