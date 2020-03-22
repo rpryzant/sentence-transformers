@@ -11,6 +11,9 @@ from sklearn.cluster import KMeans, SpectralClustering, AffinityPropagation
 from tqdm import tqdm
 import random
 import itertools
+import math
+
+VOCAB = [l.strip() for l in open('bert.vocab')]
 
 def compute_pc(X,npc=1):
     """
@@ -21,9 +24,9 @@ def compute_pc(X,npc=1):
     """
     svd = TruncatedSVD(n_components=npc, n_iter=7, random_state=0)
     svd.fit(X)
-    return svd.components_
+    return svd.components_, svd.explained_variance_ratio_
 
-def remove_pc(X, npc=1, pc=None):
+def remove_pc(X, npc=1, pc=None, explained_var=None):
     """
     Remove the projection on the principal components
     :param X: X[i,:] is a data point
@@ -31,12 +34,22 @@ def remove_pc(X, npc=1, pc=None):
     :return: XX[i, :] is the data point after removing its projection
     """
     if pc is None:
-        pc = compute_pc(X, npc)
+        pc, explained_var = compute_pc(X, npc)
 
+    # weight contribution by variance
     if npc==1:
         XX = X - X.dot(pc.transpose()) * pc
+        # XX = X - X.dot(pc.transpose()) * (pc * np.expand_dims(explained_var, 1))
     else:
         XX = X - X.dot(pc.transpose()).dot(pc)
+        # XX = X - X.dot(pc.transpose()).dot((pc * np.expand_dims(explained_var, 1)))
+
+    # standard
+    # if npc==1:
+    #     XX = X - X.dot(pc.transpose()) * pc
+    # else:
+    #     XX = X - X.dot(pc.transpose()).dot(pc)
+
     return XX
 
 
@@ -106,8 +119,52 @@ def treat_clustering(emb1, emb2, npc, k, strategy='neither'):
     return emb1, emb2
 
 
+def get_word_weights(word_freqs, doc_freqs, a=1e-3,
+                     mode='tfidf', normalize=False):
 
+  word_freq_lines = open(word_freqs).readlines()
+  doc_freq_lines = open(word_freqs).readlines()
 
+  num_words = int(word_freq_lines[0])
+  num_docs = int(doc_freq_lines[0])
+
+  word_freqs = dict([tuple(line.strip().split("\t")) for line in word_freq_lines[1:]])
+  doc_freqs = dict([tuple(line.strip().split("\t")) for line in doc_freq_lines[1:]])
+  s = 0
+  out = {}
+  for word, freq in word_freqs.items():
+    freq = float(freq)
+    s += freq
+
+    tf = math.log(float(freq) + 1.0)
+    inv_freq = a / (a + (freq / num_words) )
+    idf = math.log((num_docs + 1) / float(freq))
+
+    if mode == 'tfidf':
+      out[word] = tf * idf
+    elif mode == 'idf':
+      out[word] = idf
+    elif mode == 'tf':
+      out[word] = tf
+    elif mode == 'sif':
+      out[word] = inv_freq
+
+    # Words in the vocab that are not in the doc_frequencies file get a frequency of 1
+    if mode == 'tfidf':
+      unknown_word_weight = math.log(1.0) * math.log(num_docs / 1)
+    elif mode == 'idf':
+      unknown_word_weight = 0.01
+    elif mode == 'tf':
+      unknown_word_weight = math.log(1.0)
+    elif mode == 'sif':
+      unknown_word_weight = 0.01
+
+  if normalize:
+    for k, v in out.items():
+      out[k] = v * 1.0 / s
+    unknown_word_weight = 1.0 / s
+
+  return out, unknown_word_weight
 
 
 
@@ -134,42 +191,31 @@ tgt_root = sys.argv[1]
 
 
 
+word2weight, unkWeight = get_word_weights(
+    '../aux/wikipedia_word_frequencies.txt',
+    '../aux/wikipedia_doc_frequencies.txt',
+    mode=sys.argv[2],
+    normalize=bool(sys.argv[3]))
 
-
-
-
+id2weight = {}
+for i, l in enumerate(open('bert.vocab')):
+    id2weight[i] = word2weight.get(l.strip(), unkWeight)
 
 # PRE-CENTERING DOMAIN SHIFT
+# python sandbox.py raw_embs_ids
 NPC = 1
 K = -1
 strategy = 'no clustering'
 
-# centers = {}
-# for f in os.listdir(tgt_root):
-#     if not f.endswith('.embs') or 'train' in f:
-#         continue
 
-#     tgt = np.load(open(os.path.join(tgt_root, f), 'rb'), allow_pickle=True)
-#     tokemb1 = tgt['tokemb1']
-#     tokemb2 = tgt['tokemb2']
 
-#     # get center vecs (mu or pc)
-#     to_center = []
-#     for seq in list(tokemb1) + list(tokemb2):
-#         for elem in seq:
-#             # skip once hit paddings
-#             if elem[0] == 0.0:
-#                 break
-#             else:
-#                 to_center.append(elem)
-#     pc = compute_pc(np.array(to_center), 1)
-#     mu = np.mean(np.array(to_center), axis=0)
-#     centers[f] = (pc, mu)
-# print('done with centers')
-
-train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'), allow_pickle=True)
 tokemb1 = train['tokemb1']
 tokemb2 = train['tokemb2']
+train_ids = np.load(open(os.path.join(tgt_root, 'train.ids'), 'rb'), allow_pickle=True)
+
+
+
 to_center = []
 for seq in list(tokemb1) + list(tokemb2):
     for elem in seq:
@@ -178,10 +224,10 @@ for seq in list(tokemb1) + list(tokemb2):
             break
         else:
             to_center.append(elem)
-train_pc = compute_pc(np.array(to_center), 1)
+train_pc, train_explained_var = compute_pc(np.array(to_center), 1)
 
 
-def center_and_mean(seq, center=None):
+def center_and_mean(seq, center=None, explained_var=None, ids=None):
     pc = center
     # if center is not None:
     #     pc, mu = center
@@ -189,18 +235,26 @@ def center_and_mean(seq, center=None):
     for i in range(len(seq)):
         if seq[i][0] != 0:
 #            seq[i] = seq[i] - mu
-            seq[i] = remove_pc(seq[i], npc=1, pc=pc)
+            seq[i] = remove_pc(seq[i], npc=1, pc=pc, explained_var=explained_var)
             l += 1
-    return np.sum(seq, axis=0) / l
+
+    weights = np.array([[id2weight.get(i, unkWeight)] for i in ids])
+    weighted_seq = np.multiply(weights, seq)
+    return np.sum(weighted_seq, axis=0) / l
+
+    # print(weights); quit()
+    # return np.prod(seq, axis=0)**(1.0/l) # geometric mean
+    # return np.sum(seq[1:], axis=0) / (l - 1)
 
 
 for NPC in range(70):
-    train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'))
+    NPC = 40
+    train = np.load(open(os.path.join(tgt_root, 'train.embs'), 'rb'), allow_pickle=True)
     emb1 = train['emb1']
     emb2 = train['emb2']
     labels = train['labels']
     embs = np.concatenate((emb1, emb2), axis=0)
-    pc = compute_pc(embs, NPC)
+    pc, explained_var = compute_pc(embs, NPC)
 
     correlations = []
     for f in os.listdir(tgt_root):
@@ -211,18 +265,24 @@ for NPC in range(70):
         tokemb1 = tgt['tokemb1']
         tokemb2 = tgt['tokemb2']
 
+        tgt_ids = np.load(
+            open(os.path.join(tgt_root, f.replace('.embs', '.ids')), 'rb'), 
+            allow_pickle=True)
+        id1 = tgt_ids['in1']
+        id2 = tgt_ids['in2']
+
         emb1 = []
         emb2 = []
-        for seqA, seqB in zip(tokemb1, tokemb2):
-            emb1.append(center_and_mean(seqA, center=train_pc))
-            emb2.append(center_and_mean(seqB, center=train_pc))
+        for seqA, seqB, i1, i2 in zip(tokemb1, tokemb2, id1, id2):
+            emb1.append(center_and_mean(seqA, center=train_pc, explained_var=train_explained_var, ids=i1))
+            emb2.append(center_and_mean(seqB, center=train_pc, explained_var=train_explained_var, ids=i2))
         emb1 = np.array(emb1)
         emb2 = np.array(emb2)
 
         labels = tgt['labels']
 
-        emb1 = remove_pc(emb1, npc=NPC, pc=pc)
-        emb2 = remove_pc(emb2, npc=NPC, pc=pc)
+        emb1 = remove_pc(emb1, npc=NPC, pc=pc, explained_var=explained_var)
+        emb2 = remove_pc(emb2, npc=NPC, pc=pc, explained_var=explained_var)
 
         cosine_scores = 1 - paired_cosine_distances(emb1, emb2)
         corr = spearmanr(labels, cosine_scores).correlation
@@ -231,6 +291,7 @@ for NPC in range(70):
     print('\t'.join([str(x) for x in 
         [NPC, K, strategy, np.mean(correlations)]]))
 
+    quit()
 quit()
 
 
